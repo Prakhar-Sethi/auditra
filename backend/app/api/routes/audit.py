@@ -74,9 +74,9 @@ async def run_audit(req: AuditRequest):
         conjunctive_proxies = find_conjunctive_proxies(
             df,
             req.protected_attributes,
-            min_individual_skill=0.02,
+            min_individual_skill=0.05,
             min_interaction_gain=0.05,
-            max_pairs=150,
+            max_pairs=40,
         )
 
     # --- Calibration audit (Chouldechova 2017) ---

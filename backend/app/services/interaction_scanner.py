@@ -65,12 +65,12 @@ def _skill_score(df: pd.DataFrame, feature_cols: List[str], target_col: str, cv:
         return 0.0
 
     kf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
-    model = lgb.LGBMClassifier(n_estimators=100, num_leaves=15, verbose=-1, n_jobs=1)
+    model = lgb.LGBMClassifier(n_estimators=40, num_leaves=15, verbose=-1, n_jobs=-1)
     dummy = DummyClassifier(strategy="most_frequent")
 
     try:
-        model_acc = float(np.mean(cross_val_score(model, X, y, cv=kf, scoring="accuracy")))
-        baseline = float(np.mean(cross_val_score(dummy, X, y, cv=kf, scoring="accuracy")))
+        model_acc = float(np.mean(cross_val_score(model, X, y, cv=kf, scoring="accuracy", n_jobs=-1)))
+        baseline = float(np.mean(cross_val_score(dummy, X, y, cv=kf, scoring="accuracy", n_jobs=-1)))
         max_possible = 1.0 - baseline
         if max_possible <= 1e-6:
             return 0.0

@@ -21,7 +21,7 @@ const DEMO_STEPS = [
   { label: 'Detecting column types…',            ms: 800 },
   { label: 'Building feature correlation graph…', ms: 1200 },
   { label: 'Tracing relay chains (depth 4)…',    ms: 2000 },
-  { label: 'Scoring paths with LightGBM…',       ms: 1800 },
+  { label: 'Scoring paths with Vertex AI (AutoML)…', ms: 1800 },
   { label: 'Computing fairness metrics…',         ms: 1500 },
   { label: 'Running Vertex AI outcome scorer…',   ms: 1200 },
   { label: 'Generating audit report…',            ms: 600 },

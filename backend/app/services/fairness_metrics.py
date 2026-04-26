@@ -237,14 +237,14 @@ def compute_fairness_metrics(
         return None
 
     model = lgb.LGBMClassifier(
-        n_estimators=200,
-        num_leaves=31,
-        learning_rate=0.05,
+        n_estimators=60,
+        num_leaves=15,
+        learning_rate=0.15,
         verbose=-1,
-        n_jobs=1,
+        n_jobs=-1,
     )
 
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
     try:
         if sample_weight is not None:
             w = sample_weight[:len(subset)] if len(sample_weight) >= len(subset) else sample_weight
