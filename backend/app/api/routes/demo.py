@@ -4,6 +4,7 @@ Adult Income is the primary demo — shows HIGH-risk chains (occupation → sex)
 matching the Amazon hiring AI story. COMPAS demo kept for reference.
 """
 import io
+import logging
 import os
 import uuid
 
@@ -16,7 +17,70 @@ from app.core import session_store
 from app.models.schemas import AuditRequest, ColumnInfo, UploadResponse
 from app.services.graph_engine import detect_column_types
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Adult demo warm cache — pre-computed at startup so demo is instant
+# ---------------------------------------------------------------------------
+_adult_cache: dict | None = None  # stores {df, col_types, upload, audit, protected_attributes}
+
+
+async def warm_adult_cache() -> None:
+    """Pre-compute Adult Income demo. Called from app startup."""
+    global _adult_cache
+    try:
+        logger.info("Pre-warming Adult Income demo cache…")
+        from app.services.data_loader import load_adult
+        df = load_adult()
+        if df is None:
+            logger.warning("Adult Income dataset unavailable — demo cache skipped.")
+            return
+        if len(df) > 8000:
+            df = df.sample(n=8000, random_state=42).reset_index(drop=True)
+
+        col_types = detect_column_types(df)
+        protected = ["sex", "race"]
+
+        # Run audit once to build the cached result
+        tmp_id = str(uuid.uuid4())
+        session_store.set(tmp_id, "df", df)
+        session_store.set(tmp_id, "col_types", col_types)
+        session_store.set(tmp_id, "filename", "adult-income.csv")
+        session_store.set(tmp_id, "chat_history", [])
+        session_store.set(tmp_id, "fixes_applied", [])
+
+        audit_req = AuditRequest(
+            session_id=tmp_id,
+            protected_attributes=protected,
+            max_depth=4,
+            threshold=0.10,
+            outcome_column="income",
+            privileged_groups={"sex": "Male", "race": "White"},
+            positive_outcome=">50K",
+        )
+        audit_result = await run_audit(audit_req)
+
+        # Store config so fix/chat work on sessions created from this cache
+        session_store.set(tmp_id, "audit_config", {
+            "protected_attributes": protected,
+            "outcome_column": "income",
+            "privileged_groups": {"sex": "Male", "race": "White"},
+            "positive_outcome": ">50K",
+        })
+        session_store.set(tmp_id, "audit", audit_result)
+
+        _adult_cache = {
+            "df": df,
+            "col_types": col_types,
+            "audit_result": audit_result,
+            "protected_attributes": protected,
+        }
+        # Clean up temp session
+        session_store.delete(tmp_id)
+        logger.info("Adult Income demo cache ready.")
+    except Exception as e:
+        logger.warning(f"Demo cache warm-up failed (non-fatal): {e}")
 
 COMPAS_URL = "https://raw.githubusercontent.com/propublica/compas-analysis/master/compas-scores-two-years.csv"
 COMPAS_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "compas.csv")
@@ -126,29 +190,42 @@ async def load_adult_demo():
     UCI Adult Income dataset. Shows HIGH-risk relay chains:
     occupation → marital_status → relationship → sex (skill 0.51, above baseline).
     Matches the Amazon hiring AI discrimination story.
-    Includes full fairness metrics: SPD, DI ratio, EOD vs Kamiran/Feldman baselines.
+    Returns cached result if available (instant), otherwise computes fresh.
     """
-    from app.services.data_loader import load_adult
-
-    df = load_adult()
-    if df is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Could not load Adult Income dataset from UCI repository."
-        )
-
-    # Sample for demo speed — 8000 rows still shows strong patterns
-    if len(df) > 8000:
-        df = df.sample(n=8000, random_state=42).reset_index(drop=True)
-
     session_id = str(uuid.uuid4())
-    col_types = detect_column_types(df)
+    protected = ["sex", "race"]
+
+    if _adult_cache is not None:
+        # Instant path — register fresh session from pre-computed cache
+        df: pd.DataFrame = _adult_cache["df"].copy()
+        col_types = _adult_cache["col_types"]
+        audit_result = _adult_cache["audit_result"].model_copy(
+            update={"session_id": session_id}
+        )
+    else:
+        # Cold path — compute on demand
+        from app.services.data_loader import load_adult
+        df = load_adult()
+        if df is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Could not load Adult Income dataset from UCI repository."
+            )
+        if len(df) > 8000:
+            df = df.sample(n=8000, random_state=42).reset_index(drop=True)
+        col_types = detect_column_types(df)
 
     session_store.set(session_id, "df", df)
     session_store.set(session_id, "col_types", col_types)
     session_store.set(session_id, "filename", "adult-income.csv")
     session_store.set(session_id, "chat_history", [])
     session_store.set(session_id, "fixes_applied", [])
+    session_store.set(session_id, "audit_config", {
+        "protected_attributes": protected,
+        "outcome_column": "income",
+        "privileged_groups": {"sex": "Male", "race": "White"},
+        "positive_outcome": ">50K",
+    })
 
     columns = [
         ColumnInfo(
@@ -166,21 +243,25 @@ async def load_adult_demo():
         row_count=len(df),
     )
 
-    audit_req = AuditRequest(
-        session_id=session_id,
-        protected_attributes=["sex", "race"],
-        max_depth=4,
-        threshold=0.10,
-        outcome_column="income",
-        privileged_groups={"sex": "Male", "race": "White"},
-        positive_outcome=">50K",
-    )
-    audit_result = await run_audit(audit_req)
+    if _adult_cache is None:
+        # Cold path: run audit now
+        audit_req = AuditRequest(
+            session_id=session_id,
+            protected_attributes=protected,
+            max_depth=4,
+            threshold=0.10,
+            outcome_column="income",
+            privileged_groups={"sex": "Male", "race": "White"},
+            positive_outcome=">50K",
+        )
+        audit_result = await run_audit(audit_req)
+
+    session_store.set(session_id, "audit", audit_result)
 
     return {
         "upload": upload_response,
         "audit": audit_result,
-        "protected_attributes": ["sex", "race"],
+        "protected_attributes": protected,
         "description": (
             "UCI Adult Income: occupation and marital status form multi-hop chains "
             "that reconstruct sex with 51% skill above random baseline — exactly the "

@@ -177,8 +177,12 @@ export default function UploadScreen({ onUploadComplete, onAuditComplete, upload
             </button>
           </div>
 
-          <p className="text-slate-400 text-sm mb-3">
+          <p className="text-slate-400 text-sm mb-1">
             Which columns should your model never be able to reconstruct?
+          </p>
+          <p className="text-slate-600 text-xs mb-3">
+            Pick demographic attributes (gender, race, age group). ID columns, phone numbers, or
+            unique identifiers will return no chains — they have no correlation with other features.
           </p>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-6">

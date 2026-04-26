@@ -20,6 +20,37 @@ interface Props {
   onAuditComplete: (data: AuditResponse) => void
 }
 
+function CleanDatasetBanner({ summary }: { summary: string }) {
+  const reasons = [
+    'Dataset may not contain proxies for the protected attribute.',
+    'Protected attribute may be truly independent of other columns.',
+    'Data could be an ID/contact table (phone numbers, emails) with no demographic signal.',
+    'Try selecting a different protected attribute, or lower the threshold.',
+  ]
+  return (
+    <div className="mt-4 p-6 bg-slate-800/60 border border-slate-600 rounded-xl">
+      <div className="flex items-start gap-4">
+        <span className="text-4xl shrink-0">🎉</span>
+        <div>
+          <h3 className="text-lg font-bold text-white mb-1">No bias chains found</h3>
+          <p className="text-slate-400 text-sm mb-4">{summary || 'No multi-hop discrimination paths detected at the current threshold and depth.'}</p>
+          <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">Possible reasons</p>
+          <ul className="space-y-1">
+            {reasons.map(r => (
+              <li key={r} className="text-slate-400 text-xs flex items-start gap-2">
+                <span className="text-slate-600 mt-0.5">•</span>{r}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-xs text-slate-500">
+            The graph above still shows all feature relationships — hover nodes to explore correlations.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AuditScreen({ uploadData, initialAuditData, onAuditComplete }: Props) {
   const [audit, setAudit] = useState<AuditResponse | null>(initialAuditData)
   const [selectedChain, setSelectedChain] = useState<Chain | null>(null)
@@ -32,7 +63,11 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
   const handleFixApplied = (fix: FixResponse) => {
     setLastFix(fix)
     if (!audit) return
-    const remaining = audit.chains.filter(c => c.id !== fix.chain_id)
+    // Also remove sibling chains sharing the same weakest_link (backend purges them too)
+    const remaining = audit.chains.filter(c =>
+      c.id !== fix.chain_id &&
+      (fix.removed_feature === '' || c.weakest_link !== fix.removed_feature)
+    )
     const updated = { ...audit, chains: remaining }
     setAudit(updated)
     onAuditComplete(updated)
@@ -237,15 +272,21 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
           </div>
         </div>
 
-        {/* Empty state */}
-        {audit.chains.length === 0 && (
-          <div className="mt-8 text-center py-16 border border-slate-700 rounded-xl">
-            <div className="text-5xl mb-4">🎉</div>
-            <h3 className="text-xl font-bold text-white mb-2">No chains found</h3>
-            <p className="text-slate-400 text-sm">
-              No multi-hop discrimination paths detected at the current threshold and depth.
-              This dataset appears clean with respect to the selected protected attributes.
-            </p>
+        {/* Empty / clean state */}
+        {audit.chains.length === 0 && <CleanDatasetBanner summary={audit.summary} />}
+
+        {/* All-LOW advisory */}
+        {audit.chains.length > 0 && high === 0 && critical === 0 && medium === 0 && (
+          <div className="p-4 bg-green-950/40 border border-green-700/40 rounded-xl flex items-start gap-3">
+            <span className="text-2xl shrink-0">✅</span>
+            <div>
+              <p className="text-green-300 font-semibold text-sm">No high-risk patterns detected</p>
+              <p className="text-slate-400 text-xs mt-1">
+                All {audit.chains.length} chains scored LOW — no feature combination reconstructs the
+                protected attribute significantly above random chance. This dataset looks clean for
+                the selected attributes. Try a lower threshold or deeper depth to be thorough.
+              </p>
+            </div>
           </div>
         )}
       </div>
