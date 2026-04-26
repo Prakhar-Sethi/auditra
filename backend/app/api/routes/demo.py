@@ -6,6 +6,7 @@ matching the Amazon hiring AI story. COMPAS demo kept for reference.
 import io
 import logging
 import os
+import pickle
 import uuid
 
 import pandas as pd
@@ -21,16 +22,52 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
-# Adult demo warm cache — pre-computed at startup so demo is instant
+# Adult demo warm cache — persisted to disk so restarts are instant (<1s)
 # ---------------------------------------------------------------------------
-_adult_cache: dict | None = None  # stores {df, col_types, upload, audit, protected_attributes}
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+_CACHE_FILE = os.path.join(_DATA_DIR, "adult_demo_cache.pkl")
+
+_adult_cache: dict | None = None  # {df, col_types, audit_result, protected_attributes}
+
+
+def _load_disk_cache() -> "dict | None":
+    if not os.path.exists(_CACHE_FILE):
+        return None
+    try:
+        with open(_CACHE_FILE, "rb") as f:
+            data = pickle.load(f)
+        logger.info("Adult demo loaded from disk cache (instant).")
+        return data
+    except Exception as e:
+        logger.warning(f"Disk cache corrupt, recomputing: {e}")
+        try:
+            os.remove(_CACHE_FILE)
+        except OSError:
+            pass
+        return None
+
+
+def _save_disk_cache(cache: dict) -> None:
+    try:
+        os.makedirs(_DATA_DIR, exist_ok=True)
+        with open(_CACHE_FILE, "wb") as f:
+            pickle.dump(cache, f)
+        logger.info("Adult demo cache saved to disk.")
+    except Exception as e:
+        logger.warning(f"Could not persist demo cache: {e}")
 
 
 async def warm_adult_cache() -> None:
-    """Pre-compute Adult Income demo. Called from app startup."""
+    """Load from disk if available (instant), else compute once and persist."""
     global _adult_cache
+
+    cached = _load_disk_cache()
+    if cached is not None:
+        _adult_cache = cached
+        return
+
     try:
-        logger.info("Pre-warming Adult Income demo cache…")
+        logger.info("Building Adult Income demo cache (first run — one time only)…")
         from app.services.data_loader import load_adult
         df = load_adult()
         if df is None:
@@ -42,7 +79,6 @@ async def warm_adult_cache() -> None:
         col_types = detect_column_types(df)
         protected = ["sex", "race"]
 
-        # Run audit once to build the cached result
         tmp_id = str(uuid.uuid4())
         session_store.set(tmp_id, "df", df)
         session_store.set(tmp_id, "col_types", col_types)
@@ -60,15 +96,7 @@ async def warm_adult_cache() -> None:
             positive_outcome=">50K",
         )
         audit_result = await run_audit(audit_req)
-
-        # Store config so fix/chat work on sessions created from this cache
-        session_store.set(tmp_id, "audit_config", {
-            "protected_attributes": protected,
-            "outcome_column": "income",
-            "privileged_groups": {"sex": "Male", "race": "White"},
-            "positive_outcome": ">50K",
-        })
-        session_store.set(tmp_id, "audit", audit_result)
+        session_store.delete(tmp_id)
 
         _adult_cache = {
             "df": df,
@@ -76,12 +104,15 @@ async def warm_adult_cache() -> None:
             "audit_result": audit_result,
             "protected_attributes": protected,
         }
-        # Clean up temp session
-        session_store.delete(tmp_id)
-        logger.info("Adult Income demo cache ready.")
+        _save_disk_cache(_adult_cache)
+        logger.info("Adult Income demo cache ready and persisted to disk.")
     except Exception as e:
         logger.warning(f"Demo cache warm-up failed (non-fatal): {e}")
 
+
+# ---------------------------------------------------------------------------
+# COMPAS demo (secondary)
+# ---------------------------------------------------------------------------
 COMPAS_URL = "https://raw.githubusercontent.com/propublica/compas-analysis/master/compas-scores-two-years.csv"
 COMPAS_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "compas.csv")
 
@@ -99,11 +130,8 @@ COMPAS_KEEP_COLS = [
 
 
 def _load_compas() -> pd.DataFrame:
-    # Try local cache first
     if os.path.exists(COMPAS_LOCAL):
         return pd.read_csv(COMPAS_LOCAL)
-
-    # Try downloading
     try:
         resp = requests.get(COMPAS_URL, timeout=15)
         resp.raise_for_status()
@@ -123,13 +151,7 @@ def _load_compas() -> pd.DataFrame:
 
 @router.post("/demo/compas")
 async def load_compas_demo():
-    """
-    Loads the COMPAS dataset, selects relevant columns, registers a session,
-    and returns upload metadata - frontend can then call /audit immediately.
-    """
     df_raw = _load_compas()
-
-    # Keep only meaningful columns that exist
     keep = [c for c in COMPAS_KEEP_COLS if c in df_raw.columns]
     df = df_raw[keep].dropna(subset=["race", "sex"]).reset_index(drop=True)
 
@@ -158,7 +180,6 @@ async def load_compas_demo():
         row_count=len(df),
     )
 
-    # Auto-run audit so the demo loads instantly
     audit_req = AuditRequest(
         session_id=session_id,
         protected_attributes=COMPAS_PROTECTED,
@@ -181,29 +202,26 @@ async def load_compas_demo():
 
 
 # ---------------------------------------------------------------------------
-# Adult Income demo (primary — shows HIGH-risk chains)
+# Adult Income demo (primary — instant from cache after first run)
 # ---------------------------------------------------------------------------
 
 @router.post("/demo/adult")
 async def load_adult_demo():
     """
-    UCI Adult Income dataset. Shows HIGH-risk relay chains:
-    occupation → marital_status → relationship → sex (skill 0.51, above baseline).
-    Matches the Amazon hiring AI discrimination story.
-    Returns cached result if available (instant), otherwise computes fresh.
+    UCI Adult Income dataset. Returns instantly from disk cache after first run.
+    Shows HIGH-risk relay chains: occupation → sex (skill 0.51).
     """
     session_id = str(uuid.uuid4())
     protected = ["sex", "race"]
 
     if _adult_cache is not None:
-        # Instant path — register fresh session from pre-computed cache
         df: pd.DataFrame = _adult_cache["df"].copy()
         col_types = _adult_cache["col_types"]
         audit_result = _adult_cache["audit_result"].model_copy(
             update={"session_id": session_id}
         )
     else:
-        # Cold path — compute on demand
+        # Cold path (cache not ready yet — rare, only within first ~60s of first-ever boot)
         from app.services.data_loader import load_adult
         df = load_adult()
         if df is None:
@@ -244,7 +262,6 @@ async def load_adult_demo():
     )
 
     if _adult_cache is None:
-        # Cold path: run audit now
         audit_req = AuditRequest(
             session_id=session_id,
             protected_attributes=protected,
