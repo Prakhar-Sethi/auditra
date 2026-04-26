@@ -22,6 +22,10 @@ import pandas as pd
 from app.core.config import settings
 from app.models.schemas import Chain, ShapEntry
 
+# Circuit breaker: endpoints that failed with structural schema errors (Missing struct property).
+# Once an endpoint fails structurally, skip all future calls → no retry HTTP overhead.
+_schema_failed_endpoints: set[str] = set()
+
 
 def _init_vertex():
     from google.cloud import aiplatform
@@ -90,6 +94,12 @@ def score_chain_vertex(df: pd.DataFrame, chain: Chain) -> Optional[float]:
     if not endpoint_id:
         return None
 
+    # Circuit breaker: skip endpoints that previously failed with schema mismatch.
+    # Avoids hundreds of failing HTTP calls when uploaded dataset has fewer columns
+    # than the training schema (e.g. demo dataset vs full training dataset).
+    if endpoint_id in _schema_failed_endpoints:
+        return None
+
     feature_cols = [c for c in chain.path if c != chain.protected_attribute]
     target_col   = chain.protected_attribute
 
@@ -156,7 +166,14 @@ def score_chain_vertex(df: pd.DataFrame, chain: Chain) -> Optional[float]:
         return skill if skill > 0 else None
 
     except Exception as e:
-        print(f"[Vertex AI] Prediction failed ({dataset}/{endpoint_id}): {e}")
+        err = str(e)
+        if "Missing struct property" in err or "missing" in err.lower() and "struct" in err.lower():
+            _schema_failed_endpoints.add(endpoint_id)
+            print(f"[Vertex AI] Schema mismatch — circuit breaker tripped for {endpoint_id}. "
+                  f"Uploaded dataset missing columns required by training schema. "
+                  f"All further chain-scorer calls will use LightGBM.")
+        else:
+            print(f"[Vertex AI] Prediction failed ({dataset}/{endpoint_id}): {e}")
         return None
 
 
