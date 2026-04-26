@@ -73,24 +73,24 @@ def _score_via_lgbm(df: pd.DataFrame, feature_cols: List[str], target_col: str) 
         return 0.0
 
     objective = "multiclass" if n_classes > 2 else "binary"
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
     model = lgb.LGBMClassifier(
         objective=objective,
-        num_leaves=31,
-        learning_rate=0.1,
-        n_estimators=100,
+        num_leaves=15,
+        learning_rate=0.15,
+        n_estimators=50,
         verbose=-1,
-        n_jobs=1,
+        n_jobs=-1,
     )
 
     try:
-        model_scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy")
+        model_scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy", n_jobs=-1)
         raw_accuracy = float(np.mean(model_scores))
 
         # Baseline: majority-class dummy classifier
         dummy = DummyClassifier(strategy="most_frequent")
-        baseline_scores = cross_val_score(dummy, X, y, cv=cv, scoring="accuracy")
+        baseline_scores = cross_val_score(dummy, X, y, cv=cv, scoring="accuracy", n_jobs=-1)
         baseline = float(np.mean(baseline_scores))
 
         # Skill score: how much better than baseline, normalized to [0,1]
