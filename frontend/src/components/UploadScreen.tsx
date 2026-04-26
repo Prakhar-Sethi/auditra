@@ -77,11 +77,11 @@ export default function UploadScreen({ onUploadComplete, onAuditComplete, upload
     setDemoLoading(true)
     setError(null)
     try {
-      const res = await axios.post<{ upload: UploadResponse; audit: AuditResponse }>('/api/demo/compas')
+      const res = await axios.post<{ upload: UploadResponse; audit: AuditResponse }>('/api/demo/adult')
       onUploadComplete(res.data.upload)
       onAuditComplete(res.data.audit)
     } catch (e: any) {
-      setError(e.response?.data?.detail || 'Could not load COMPAS demo.')
+      setError(e.response?.data?.detail || 'Could not load demo.')
     } finally {
       setDemoLoading(false)
     }
@@ -109,9 +109,9 @@ export default function UploadScreen({ onUploadComplete, onAuditComplete, upload
       {!columns.length && (
         <div className="mb-6 p-4 bg-slate-800/60 border border-slate-600 rounded-xl flex items-center justify-between gap-4">
           <div>
-            <p className="text-white text-sm font-semibold">Try with COMPAS - the most famous biased AI dataset</p>
+            <p className="text-white text-sm font-semibold">Try with Adult Income — see HIGH-risk chains in seconds</p>
             <p className="text-slate-400 text-xs mt-0.5">
-              ProPublica's criminal justice tool that discriminated against Black defendants
+              UCI dataset behind Amazon's 2018 hiring AI scandal — occupation → sex chains, skill 0.51
             </p>
           </div>
           <button

@@ -40,7 +40,6 @@ export default function ChatBox({ sessionId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <h2 className="text-lg font-semibold text-white mb-3">Audit Assistant</h2>
       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
         {messages.map((m, i) => (
           <div key={i} className={`text-sm leading-relaxed ${m.role === 'user' ? 'text-right' : ''}`}>

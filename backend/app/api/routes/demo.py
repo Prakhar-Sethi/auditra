@@ -1,6 +1,7 @@
 """
-Pre-loaded COMPAS demo mode. Loads the COMPAS dataset, runs the full audit,
-and returns a session ready to explore - no upload needed.
+Pre-loaded demo modes: Adult Income (primary) + COMPAS (secondary).
+Adult Income is the primary demo — shows HIGH-risk chains (occupation → sex)
+matching the Amazon hiring AI story. COMPAS demo kept for reference.
 """
 import io
 import os
@@ -111,5 +112,78 @@ async def load_compas_demo():
             "is the criminal justice risk scoring tool found by ProPublica to discriminate "
             "against Black defendants. This is the exact dataset that sparked the algorithmic "
             "fairness research movement."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Adult Income demo (primary — shows HIGH-risk chains)
+# ---------------------------------------------------------------------------
+
+@router.post("/demo/adult")
+async def load_adult_demo():
+    """
+    UCI Adult Income dataset. Shows HIGH-risk relay chains:
+    occupation → marital_status → relationship → sex (skill 0.51, above baseline).
+    Matches the Amazon hiring AI discrimination story.
+    Includes full fairness metrics: SPD, DI ratio, EOD vs Kamiran/Feldman baselines.
+    """
+    from app.services.data_loader import load_adult
+
+    df = load_adult()
+    if df is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not load Adult Income dataset from UCI repository."
+        )
+
+    # Sample for demo speed — 8000 rows still shows strong patterns
+    if len(df) > 8000:
+        df = df.sample(n=8000, random_state=42).reset_index(drop=True)
+
+    session_id = str(uuid.uuid4())
+    col_types = detect_column_types(df)
+
+    session_store.set(session_id, "df", df)
+    session_store.set(session_id, "col_types", col_types)
+    session_store.set(session_id, "filename", "adult-income.csv")
+    session_store.set(session_id, "chat_history", [])
+    session_store.set(session_id, "fixes_applied", [])
+
+    columns = [
+        ColumnInfo(
+            name=col,
+            dtype=col_types[col],
+            unique_count=int(df[col].nunique()),
+            null_pct=round(float(df[col].isnull().mean()), 4),
+        )
+        for col in df.columns
+    ]
+
+    upload_response = UploadResponse(
+        session_id=session_id,
+        columns=columns,
+        row_count=len(df),
+    )
+
+    audit_req = AuditRequest(
+        session_id=session_id,
+        protected_attributes=["sex", "race"],
+        max_depth=4,
+        threshold=0.10,
+        outcome_column="income",
+        privileged_groups={"sex": "Male", "race": "White"},
+        positive_outcome=">50K",
+    )
+    audit_result = await run_audit(audit_req)
+
+    return {
+        "upload": upload_response,
+        "audit": audit_result,
+        "protected_attributes": ["sex", "race"],
+        "description": (
+            "UCI Adult Income: occupation and marital status form multi-hop chains "
+            "that reconstruct sex with 51% skill above random baseline — exactly the "
+            "pattern behind Amazon's 2018 hiring AI discrimination scandal."
         ),
     }

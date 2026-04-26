@@ -10,6 +10,7 @@ import GraphView from './GraphView'
 import ChainPanel from './ChainPanel'
 import ChatBox from './ChatBox'
 import ShapChart from './ShapChart'
+import FairnessPanel from './FairnessPanel'
 import { GraphSkeleton } from './Skeleton'
 import ToastContainer, { useToast } from './Toast'
 
@@ -23,7 +24,7 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
   const [audit, setAudit] = useState<AuditResponse | null>(initialAuditData)
   const [selectedChain, setSelectedChain] = useState<Chain | null>(null)
   const [lastFix, setLastFix] = useState<FixResponse | null>(null)
-  const [activeTab, setActiveTab] = useState<'chains' | 'chat'>('chains')
+  const [activeTab, setActiveTab] = useState<'chains' | 'fairness' | 'chat'>('chains')
   const [reportLoading, setReportLoading] = useState(false)
   const [reportUrl, setReportUrl] = useState<string | null>(null)
   const { toasts, dismiss, toast } = useToast()
@@ -63,16 +64,16 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
   const critical = audit.chains.filter(c => c.risk_label === 'CRITICAL').length
   const high = audit.chains.filter(c => c.risk_label === 'HIGH').length
   const medium = audit.chains.filter(c => c.risk_label === 'MEDIUM').length
-
   const compliant = critical === 0 && high === 0
+  const hasFairness = (audit.fairness_metrics?.length ?? 0) > 0
 
   return (
     <>
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
 
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1600px] mx-auto space-y-5">
         {/* Summary bar */}
-        <div className="flex items-center gap-4 mb-6 flex-wrap">
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div>
               <span className="text-3xl font-bold text-white">{audit.chains.length}</span>
@@ -99,10 +100,10 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
             ${compliant
               ? 'bg-green-900/40 border-green-700 text-green-300'
               : 'bg-red-900/40 border-red-700 text-red-300'}`}>
-            {compliant ? '✅ EU AI Act Compliant' : '❌ Non-Compliant - fixes required'}
+            {compliant ? '✅ EU AI Act Compliant' : '❌ Non-Compliant — fixes required'}
           </div>
 
-          <p className="text-slate-400 text-sm hidden lg:block ml-2 max-w-md truncate">{audit.summary}</p>
+          <p className="text-slate-400 text-sm hidden lg:block ml-2 max-w-lg truncate">{audit.summary}</p>
 
           <div className="ml-auto flex gap-2">
             {reportUrl ? (
@@ -132,63 +133,55 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Graph */}
-          <div className="xl:col-span-2 space-y-4">
-            <GraphView
-              audit={audit}
-              selectedChain={selectedChain}
-              onNodeClick={(nodeId) => {
-                const chain = audit.chains.find(c => c.path.includes(nodeId))
-                if (chain) {
-                  setSelectedChain(chain)
-                  setActiveTab('chains')
-                  toast?.(`Selected: ${chain.path.join(' → ')}`, 'info')
-                }
-              }}
-            />
+        {/* Full-width graph */}
+        <div>
+          <GraphView
+            audit={audit}
+            selectedChain={selectedChain}
+            onNodeClick={(nodeId) => {
+              const chain = audit.chains.find(c => c.path.includes(nodeId))
+              if (chain) {
+                setSelectedChain(chain)
+                setActiveTab('chains')
+                toast?.(`Selected: ${chain.path.join(' → ')}`, 'info')
+              }
+            }}
+          />
 
-            {/* Legend */}
-            <div className="flex flex-wrap gap-4 px-2">
-              {[
-                { label: 'CRITICAL', color: 'bg-red-500' },
-                { label: 'HIGH', color: 'bg-orange-500' },
-                { label: 'MEDIUM', color: 'bg-yellow-500' },
-                { label: 'LOW', color: 'bg-green-500' },
-                { label: 'No chain', color: 'bg-slate-500' },
-              ].map(l => (
-                <div key={l.label} className="flex items-center gap-1.5 text-xs text-slate-400">
-                  <span className={`w-2.5 h-2.5 rounded-full ${l.color}`} />
-                  {l.label}
-                </div>
-              ))}
-              <span className="text-xs text-slate-500 ml-auto">Click a node to select its chain</span>
-            </div>
-
-            {lastFix && <ShapChart entries={lastFix.shap_values} />}
+          {/* Legend */}
+          <div className="flex flex-wrap gap-4 px-2 mt-2">
+            {[
+              { label: 'CRITICAL', color: 'bg-red-500' },
+              { label: 'HIGH', color: 'bg-orange-500' },
+              { label: 'MEDIUM', color: 'bg-yellow-500' },
+              { label: 'LOW', color: 'bg-green-500' },
+              { label: 'No chain', color: 'bg-slate-500' },
+            ].map(l => (
+              <div key={l.label} className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className={`w-2.5 h-2.5 rounded-full ${l.color}`} />
+                {l.label}
+              </div>
+            ))}
+            <span className="text-xs text-slate-500 ml-auto">Click node to select chain</span>
           </div>
+        </div>
 
-          {/* Side panel */}
+        {lastFix && <ShapChart entries={lastFix.shap_values} />}
+
+        {/* 3-column panel row */}
+        <div className={`grid gap-5 ${hasFairness ? 'grid-cols-1 xl:grid-cols-3' : 'grid-cols-1 xl:grid-cols-2'}`}>
+          {/* Chains panel */}
           <div
             className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col"
-            style={{ height: 580 }}
+            style={{ height: 560 }}
           >
-            <div className="flex gap-1 mb-4">
-              {(['chains', 'chat'] as const).map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors
-                    ${activeTab === tab
-                      ? 'bg-red-600 text-white shadow-lg shadow-red-900/40'
-                      : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}`}
-                >
-                  {tab === 'chains' ? `Chains (${audit.chains.length})` : '💬 Ask Gemini'}
-                </button>
-              ))}
+            <div className="flex items-center justify-between mb-3 shrink-0">
+              <h3 className="text-white font-semibold text-sm">
+                Relay Chains
+                <span className="ml-2 text-slate-500 font-normal">({audit.chains.length})</span>
+              </h3>
             </div>
-
-            {activeTab === 'chains' && (
+            <div className="flex-1 overflow-hidden">
               <ChainPanel
                 chains={audit.chains}
                 selectedChain={selectedChain}
@@ -196,10 +189,51 @@ export default function AuditScreen({ uploadData, initialAuditData, onAuditCompl
                 onSelectChain={setSelectedChain}
                 onFixApplied={handleFixApplied}
               />
-            )}
-            {activeTab === 'chat' && (
+            </div>
+          </div>
+
+          {/* Fairness metrics panel */}
+          {hasFairness && (
+            <div
+              className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col"
+              style={{ height: 560 }}
+            >
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                  Fairness Metrics
+                  <span className="px-1.5 py-0.5 bg-blue-900/50 border border-blue-700/50 text-blue-300 text-xs rounded font-mono">
+                    SPD · DI · EOD · AOD
+                  </span>
+                </h3>
+              </div>
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <FairnessPanel
+                  metrics={audit.fairness_metrics}
+                  mitigatedMetrics={audit.mitigated_fairness_metrics ?? []}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Chat panel */}
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col"
+            style={{ height: 560 }}
+          >
+            <div className="flex gap-1 mb-3 shrink-0">
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors
+                  ${activeTab === 'chat'
+                    ? 'bg-red-600 text-white shadow-lg shadow-red-900/40'
+                    : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}`}
+              >
+                💬 Ask Gemini
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
               <ChatBox sessionId={uploadData.session_id} />
-            )}
+            </div>
           </div>
         </div>
 

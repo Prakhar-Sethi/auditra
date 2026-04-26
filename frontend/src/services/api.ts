@@ -46,12 +46,39 @@ export interface GraphEdge {
   weight: number
 }
 
+export interface GroupMetrics {
+  group_value: string
+  size: number
+  base_rate: number
+  prediction_rate: number
+  tpr: number
+  fpr: number
+  precision: number
+  accuracy: number
+}
+
+export interface FairnessMetrics {
+  protected_attribute: string
+  outcome_column: string
+  privileged_group: string
+  positive_outcome: string
+  statistical_parity_diff: number
+  disparate_impact_ratio: number
+  equal_opportunity_diff: number
+  average_odds_diff: number
+  predictive_parity_diff: number
+  model_accuracy_overall: number
+  group_metrics: Record<string, GroupMetrics>
+}
+
 export interface AuditResponse {
   session_id: string
   nodes: GraphNode[]
   edges: GraphEdge[]
   chains: Chain[]
   summary: string
+  fairness_metrics: FairnessMetrics[]
+  mitigated_fairness_metrics: FairnessMetrics[]
 }
 
 export interface ShapEntry {
