@@ -32,7 +32,7 @@ export default function ChatBox({ sessionId }: Props) {
       const res = await sendChat(sessionId, msg)
       setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I could not reach Gemini. Check your API key.' }])
+      setMessages(prev => [...prev, { role: 'assistant', content: 'AI assistant is temporarily unavailable. Please try again.' }])
     } finally {
       setLoading(false)
     }

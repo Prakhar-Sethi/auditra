@@ -33,6 +33,10 @@ export default function App() {
           <span className="text-2xl font-bold text-red-400 group-hover:opacity-80 transition-opacity">Lens</span>
         </button>
         <span className="text-slate-500 text-sm hidden sm:block">Pre-training bias auditor</span>
+        <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-blue-950/60 border border-blue-700/50 rounded-full text-blue-300 text-xs font-medium">
+          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          Powered by Vertex AI
+        </span>
 
         {screen === 'audit' && auditData && (
           <div className="flex items-center gap-3 ml-4">
