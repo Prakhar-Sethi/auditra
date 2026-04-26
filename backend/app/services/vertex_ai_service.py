@@ -100,23 +100,37 @@ def score_chain_vertex(df: pd.DataFrame, chain: Chain) -> Optional[float]:
     if not available:
         return None
 
-    # All dataset cols except target — AutoML requires full schema
+    # All dataset cols except target — AutoML requires full schema with no nulls
     all_input_cols = [c for c in df.columns if c != target_col]
 
     subset = df[all_input_cols + [target_col]].dropna(subset=[target_col]).head(200)
     if len(subset) < 10:
         return None
 
+    # Precompute fill values for non-chain columns: mean (numeric) or mode (categorical).
+    # Constant fill across instances → those columns carry no discriminative signal,
+    # so prediction variance comes only from the chain features.
+    chain_set = set(available)
+    col_fills: dict[str, str] = {}
+    for col in all_input_cols:
+        if col in chain_set:
+            continue
+        try:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                col_fills[col] = str(df[col].mean())
+            else:
+                col_fills[col] = str(df[col].mode().iloc[0])
+        except Exception:
+            col_fills[col] = "0"
+
     try:
         _init_vertex()
         from google.cloud import aiplatform
 
         endpoint = aiplatform.Endpoint(endpoint_id)
-        # Send full row; non-chain features as None (JSON null) so AutoML treats them
-        # as missing rather than failing numeric transformation on empty string.
-        chain_set = set(available)
         instances = [
-            {col: (str(row[col]) if col in chain_set else None) for col in all_input_cols}
+            {col: (str(row[col]) if col in chain_set else col_fills[col])
+             for col in all_input_cols}
             for _, row in subset.iterrows()
         ]
         response  = endpoint.predict(instances=instances)
@@ -179,14 +193,27 @@ def get_shap_vertex(
     if len(subset) < 5:
         return None
 
+    chain_set = set(available)
+    col_fills: dict[str, str] = {}
+    for col in all_input_cols:
+        if col in chain_set:
+            continue
+        try:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                col_fills[col] = str(df[col].mean())
+            else:
+                col_fills[col] = str(df[col].mode().iloc[0])
+        except Exception:
+            col_fills[col] = "0"
+
     try:
         _init_vertex()
         from google.cloud import aiplatform
 
         endpoint  = aiplatform.Endpoint(endpoint_id)
-        chain_set = set(available)
         instances = [
-            {col: (str(row[col]) if col in chain_set else None) for col in all_input_cols}
+            {col: (str(row[col]) if col in chain_set else col_fills[col])
+             for col in all_input_cols}
             for _, row in subset.iterrows()
         ]
         response  = endpoint.explain(instances=instances)
